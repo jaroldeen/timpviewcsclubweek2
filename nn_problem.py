@@ -11,6 +11,18 @@ wrong if it is supposed to be 1.
 """
 
 import random
+import numpy
+
+def sigmoid(x):
+    return 1/(1+numpy.exp(-x))
+
+def sigmoid_prime(x):
+    e = numpy.exp(-x)
+    return e/(1+e)**2
+
+def leaky_relu(x):
+    return numpy.maximum(x, 0.1*x)
+
 
 def generate_random_board():
     """Returns the inputs and the winner. The inputs are defined below."""
@@ -26,28 +38,24 @@ def generate_random_board():
     open = list(range(9))
 
     # X starts the game
-    turn = "X"
+    player = 1
 
     # Letter to input value.
-    key = {"X": 1, "O": -1}
     while len(open) > 0:
         # Choose a random spot and place in it.
         i = random.choice(open)
-        inputs[i] = key[turn]
+        inputs[i] = player
         
         # This spot is no longer open
         open.remove(i)
 
         # Check if they win
         for pos in winning_positions:
-            if all(inputs[p] == key[turn] for p in pos):
-                return inputs, key[turn]
+            if all(inputs[p] == player for p in pos):
+                return inputs, player
         
         # Switch whose turn it is.
-        if turn == "X":
-            turn = "O"
-        else:
-            turn = "X"
+        player *= -1
     
     # No one won, it must have been a draw.
     return inputs, 0
@@ -78,3 +86,99 @@ def test_function(f):
     """
     inputs, output = generate_random_board()
     return f(inputs) == output
+
+class NeuralNet():
+    def generate_biases(layers):
+        biases = []
+        for layer in layers[1:]:
+            biases.append(numpy.random.rand(layer))
+        return biases
+
+    def generate_weights(layers):
+        weights = []
+        for i, layer in enumerate(layers[:-1]):
+            weights.append(numpy.random.rand(layer, layers[i+1]))
+        return weights
+    
+    def __init__(self, layers, function):
+        self.layers = layers
+        self.function = function
+        self.biases = [numpy.random.rand(layers[i])*2-1 for i in range(1, len(layers))]
+        self.weights = [numpy.random.rand(layers[i], layers[i+1])*2-1
+                   for i in range(len(layers)-1)]
+
+    def evaluate(self, inputs):
+        for i, layer_weights in enumerate(self.weights):
+            inputs = self.function(numpy.matmul(inputs, layer_weights) + self.biases[i])
+        return inputs
+
+    def error(self, inputs_set, outputs_set):
+        responses = numpy.array([self.evaluate(inputs) for inputs in inputs_set])
+        print(responses)
+        error = numpy.linalg.norm(responses - outputs_set)
+        return error
+
+    def train(self, inputs_set, outputs_set, step, dx):
+        for i, layer_weights in enumerate(self.weights):
+            for j, node_weights in enumerate(layer_weights):
+                for k, weight in enumerate(node_weights):
+                    error = self.error(inputs_set, outputs_set)
+                    self.weights[i][j][k] += dx
+                    new_error = self.error(inputs_set, outputs_set)
+                    self.weights[i][j][k] -= dx + step*(new_error - error)/dx
+        for i, layer_biases in enumerate(self.biases):
+            error = self.error(inputs_set, outputs_set)
+            self.biases[i] += dx
+            new_error = self.error(inputs_set, outputs_set)
+            self.biases[i] -= dx + step*(new_error - error)/dx
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    numpy.random.seed(1)
+    nn = NeuralNet([9,5,3,1], function=leaky_relu)
+    inputs_set = []
+    outputs_set = []
+    for i in range(15):
+        inputs, output = generate_random_board()
+        inputs_set.append(inputs)
+        outputs_set.append(output)
+        i += 1
+    
+    def output(nn):
+        l = []
+        for inputs in inputs_set:
+            l.append('{}'.format(str(nn.evaluate(inputs)[0])))
+        print(", ".join(l))
+
+    plt.ion()
+    fig, ax = plt.subplots()
+    ax.set_title("Error of Neural Net")
+    x, y = [], []
+    Ln, = ax.plot(x, y)
+
+    plt.draw()
+
+    i = 0
+    while True:
+        error = nn.error(inputs_set, outputs_set)
+        nn.train(inputs_set, outputs_set, step=error/100, dx=error/1000)
+
+        x.append(i)
+        y.append(error)
+
+        if(i%100 == 0):            
+            Ln.set_xdata(x)
+            Ln.set_ydata(y)
+            k = min(y[0], y[max(0, i-100)]*10)
+            start = 0
+            while y[start] > k:
+                start += 1
+            plt.xlim(start, i+5)
+            plt.ylim(0, k)
+            fig.canvas.draw_idle()
+            plt.pause(0.001)
+        
+        if(i%300 == 0):
+            output(nn)
+        i += 1
